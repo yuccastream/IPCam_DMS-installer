@@ -19,7 +19,7 @@ Copy and paste this commands to your terminal:
 ## Firewall setting:
 On Fedora/CentOS/Redhat, if you experience neighbor discovery problems, open the port in the firewall
 
-`firewall-cmd --permanent --add-port=5678/udp`
+`firewall-cmd --permanent --add-port=34569/udp`
 
 `firewall-cmd --reload`
 
