@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+
+set -e
+DEBUG=${DEBUG:-false}
+if ${DEBUG}; then
+    set -x
+fi
+
+# IPCam_DMS Installer
+# What this script does:
+#   1. Downloading wine, wget and unzip, if not installed on the system
+#   2. Downloading IPCam_DMS from Mikrotik's download page
+#   3. Copying IPCam_DMS to /usr/local/bin/ directory
+#   4. Copying icons to /usr/share/icons/apps/ directory
+#   5. Creating launcher for IPCam_DMS
+#
+# Written by Evgeniy Medvedev <e.medvedev@yucca.app>
+# version=0.1.0
+IPCAM_DMS_VERSION="20201121"
+
+SCRIPT_DIR="$(dirname $(readlink -f $0))"
+cd ${SCRIPT_DIR}
+
+# Print error messages and defining error status with non-zero value
+errMsg() {
+  echo "USAGE:
+To install
+sudo bash IPCam_DMS-setup install
+
+To remove
+sudo bash IPCam_DMS-setup remove"
+  exit 1
+}
+
+# Installing dependencies
+depInst() {
+  DISTRIBUTION=`sed "/^ID/s/ID=//gp" -n /etc/os-release`
+  echo -n "Wine is not installed. Installing wine and dependencies..."
+  case $DISTRIBUTION in
+    'fedora' | '"rhel"' | '"centos"' | '"IGN"' )
+      dnf -q -y install wine wget curl unzip > /dev/null 2>&1 || yum -q -y install wine wget unzip curl > /dev/null 2>&1
+      echo "DONE"
+    ;;
+    'ubuntu' | 'debian' | '"elementary"' | 'zorin' | 'linuxmint' | 'kali' | 'neon' )
+      if [ -f /etc/os-release ]
+      then
+        source /etc/os-release
+      fi
+
+      if [ $(echo $VERSION_ID | awk '{printf "%1.0f",$1}') -ge 18 ]
+      then
+        WINEPKG="wine-stable"
+      else
+        WINEPKG="wine"
+      fi
+      apt-get -q -y install $WINEPKG wget unzip curl > /dev/null 2>&1
+      echo "DONE"
+    ;;
+    'arch' )
+      sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
+      pacman -Sy
+      pacman -Sq --noconfirm wine wget unzip curl > /dev/null 2>&1
+      echo "DONE"
+    ;;
+    *)
+      echo "FAILED"
+      exit 1
+    ;;
+  esac
+}
+
+# Downloading latest version of IPCam_DMS from website.
+toolGet() {
+  if [[ -f IPCam_DMS.exe ]]; then
+    echo "Using previously downloaded IPCam_DMS.exe"
+  else
+    echo -n "Downloading IPCam_DMS..."
+
+    URL="https://team.openipc.org/ipcam_dms/IPCam_DMS_${IPCAM_DMS_VERSION}.zip"
+    wget -q -c "${URL}"
+    echo "DONE"
+  fi
+  unzip -o IPCam_DMS_${IPCAM_DMS_VERSION}.zip -d IPCam_DMS
+}
+
+filesCp() {
+  echo -n "Copying files..."
+  if mkdir -p /usr/local/bin ; then
+    if cp -rf IPCam_DMS /usr/local/bin/ ; then
+      chmod 0777 /usr/local/bin/IPCam_DMS/
+    	cp -f ipcam_dms.sh /usr/local/bin/ipcam_dms.sh
+    	chmod a+x /usr/local/bin/ipcam_dms.sh
+	    chmod a+x /usr/local/bin/IPCam_DMS/IPCam_DMS.exe
+	    for size in $( ls -1 icons/IPCam_DMS-*.png | cut -d\- -f2 | cut -d\. -f1 | paste -sd ' ') ; do
+		    mkdir -p /usr/share/icons/hicolor/${size}/apps/
+		    cp -f icons/IPCam_DMS-${size}.png /usr/share/icons/hicolor/${size}/apps/ipcam_dms.png
+	    done
+      echo "DONE"
+    else
+      echo "FAILED"
+      exit 1
+    fi
+  else
+    echo "FAILED"
+    exit 1
+  fi
+}
+
+lncCrt() {
+  echo -n "Creating application launcher..."
+  if touch /usr/share/applications/ipcam_dms.desktop ; then
+    echo "[Desktop Entry]
+Name=IPCam_DMS
+GenericName=Configuration tool for XM cameras
+Comment=Configuration tool for XM cameras
+Exec=/usr/local/bin/ipcam_dms.sh
+Icon=ipcam_dms
+Terminal=false
+Type=Application
+StartupNotify=true
+StartupWMClass=IPCam_DMS.exe
+Categories=Network;RemoteAccess;
+Keywords=ipcam_dms;ipcam;dms;xm;openipc;" > /usr/share/applications/ipcam_dms.desktop
+
+    xdg-desktop-menu forceupdate --mode system
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
+    echo "DONE"
+  else
+    echo "FAILED"
+    exit 1
+  fi
+}
+
+filesRm() {
+  echo -n "Removing launcher..."
+  find /usr/share/applications/ -name "ipcam_dms.desktop" -delete
+  echo "DONE"
+
+  echo -n "Removing icons..."
+  find /usr/share/icons -name "ipcam_dms.png" -delete
+  echo "DONE"
+
+  echo -n "Removing files..."
+  rm -rf /usr/local/bin/IPCam_DMS
+  rm -rf /usr/local/bin/ipcam_dms.sh
+  echo "DONE"
+}
+
+if [ -z "$1" ]; then
+  errMsg;
+fi
+case $1 in
+  'install' )
+    if [[ ! $(wine --version) ]]; then
+        depInst
+    fi
+    if toolGet ; then
+      if filesCp ; then
+        lncCrt
+      else
+        echo "FAILED"
+        exit 1
+      fi
+    else
+      echo "FAILED"
+      exit 1
+    fi
+  ;;
+
+  'remove' )
+    filesRm
+  ;;
+
+  * )
+    errMsg
+  ;;
+esac
